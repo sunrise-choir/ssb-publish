@@ -1,7 +1,7 @@
 //! Publish signed Secure Scuttlebutt (Ssb) Messages as Json
 //!
 
-use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature};
+use ed25519_dalek::{Keypair, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
 use snafu::{ensure, ResultExt, Snafu};
