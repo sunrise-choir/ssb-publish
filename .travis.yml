@@ -6,7 +6,7 @@ script: cargo test && cargo doc --no-deps
 deploy:
   local_dir: ./target/doc
   provider: pages
-  github_token: $GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+  token: $TOKEN  # Set in the settings page of your repository, as a secure variable
   keep_history: false
   verbose: true
   on:
