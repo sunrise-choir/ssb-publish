@@ -4,11 +4,10 @@ cache: cargo
 script: cargo test && cargo doc --no-deps
 
 deploy:
-  local-dir: ./target/doc
+  local_dir: ./target/doc
   provider: pages
-  skip-cleanup: true
-  github-token: $GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
-  keep-history: false
+  token: $GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+  keep_history: false
   verbose: true
   on:
     branch: master
