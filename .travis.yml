@@ -1,8 +1,0 @@
-language: rust
-
-cache: cargo
-script: cargo test && cargo doc --no-deps
-
-deploy:
-  provider: pages
-  edge: true
