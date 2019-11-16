@@ -5,4 +5,5 @@ script: cargo test && cargo doc --no-deps
 
 deploy:
   provider: pages
+  local-dir: ./target/doc
   edge: true
