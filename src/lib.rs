@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use snafu::{ensure, ResultExt, Snafu};
 use ssb_legacy_msg::Message;
-use ssb_legacy_msg_data::json::{from_slice, DecodeJsonError};
-use ssb_legacy_msg_data::value::Value;
+use ssb_legacy_msg_data::json::{from_slice, to_vec, DecodeJsonError};
+use ssb_legacy_msg_data::value::{Value, RidiculousStringMap};
 use ssb_legacy_msg_data::LegacyF64;
 use ssb_multiformats::multihash::{Target};
 use ssb_multiformats::multikey::{Multisig, Multikey};
@@ -55,8 +55,8 @@ pub use ssb_multiformats::multihash::Multihash;
 ///```
 ///  use ssb_publish::{publish, Content};
 ///  use ssb_multiformats::multikey::Multikey;
-///  use ssb_validate::validate_message_value_hash_chain;
-///  use ssb_verify_signatures::verify_message_value;
+///  use ssb_validate::validate_message_hash_chain;
+///  use ssb_verify_signatures::verify_message;
 ///  use serde::{Deserialize, Serialize};
 ///  use ssb_crypto::{generate_longterm_keypair};
 ///
@@ -82,8 +82,7 @@ pub use ssb_multiformats::multihash::Multihash;
 ///  };
 ///  let content = Content::Plain(contact);
 ///
-///  // This example is using ed25519_dalek for crypto, but you can use whatever you want.
-///  let (msg, _) = publish::<_, &[u8]>(
+///  let msg = publish::<_, &[u8]>(
 ///      content,
 ///      None,
 ///      &pk,
@@ -92,8 +91,8 @@ pub use ssb_multiformats::multihash::Multihash;
 ///  )
 ///  .unwrap();
 ///
-///  let is_valid = validate_message_value_hash_chain::<_, &[u8]>(&msg, None).is_ok();
-///  let is_verified = verify_message_value(&msg).is_ok();
+///  let is_valid = validate_message_hash_chain::<_, &[u8]>(&msg, None).is_ok();
+///  let is_verified = verify_message(&msg).is_ok();
 ///
 ///  assert!(is_valid);
 ///  assert!(is_verified);
@@ -106,7 +105,7 @@ pub fn publish<T, P>(
     public_key: &PublicKey,
     secret_key: &SecretKey,
     timestamp: f64,
-) -> Result<(Vec<u8>, Multihash)>
+) -> Result<Vec<u8>>
 where
     T: Serialize,
     P: AsRef<[u8]>
@@ -118,17 +117,16 @@ where
         Some(message) => {
             let message = message.as_ref();
             let decoded_previous =
-                from_slice::<SsbPreviousMessageValue>(message).context(InvalidPreviousMessage {
+                from_slice::<SsbPreviousMessage>(message).context(InvalidPreviousMessage {
                     message: message.to_owned(),
                 })?;
-            let previous_key = get_multihash_from_message_bytes(message);
-            Some((decoded_previous, previous_key))
+            Some(decoded_previous)
         }
         None => None,
     };
 
     let (new_seq, previous_key, previous_author) = previous_message
-        .map(|(msg, key)| (msg.sequence + 1, Some(key), Some(msg.author)))
+        .map(|msg| (msg.value.sequence + 1, Some(msg.key), Some(msg.value.author)))
         .unwrap_or((1, None, None));
 
     // Make sure the author of the previous message matches the public key we're using to publish
@@ -168,8 +166,16 @@ where
     let published_bytes = ssb_legacy_msg::json::to_legacy_vec(&new_message, false).unwrap();
 
     let key = get_multihash_from_message_bytes(&published_bytes);
+    let value = from_slice(&published_bytes).unwrap();  
 
-    Ok((published_bytes, key))
+    let mut map = RidiculousStringMap::with_capacity(1);
+    map.insert("key".to_owned(), Value::String(key.to_legacy_string()));
+    map.insert("value".to_owned(), value);
+    let message: Value = Value::Object(map);
+
+    let message_bytes = to_vec(&message, false).unwrap();
+
+    Ok(message_bytes)
 }
 
 fn get_multihash_from_message_bytes(bytes: &[u8]) -> Multihash {
@@ -213,8 +219,8 @@ struct Contact {
 mod tests {
     use crate::{publish, Contact, Content};
     use ssb_multiformats::multikey::Multikey;
-    use ssb_validate::validate_message_value_hash_chain;
-    use ssb_verify_signatures::verify_message_value;
+    use ssb_validate::validate_message_hash_chain;
+    use ssb_verify_signatures::verify_message;
     use ssb_crypto::{generate_longterm_keypair};
 
 
@@ -232,7 +238,7 @@ mod tests {
             blocking: false,
         };
         let content = Content::Plain(contact);
-        let (msg1, _) = publish::<_, &[u8]>(
+        let msg1 = publish::<_, &[u8]>(
             content,
             None,
             &pk,
@@ -241,8 +247,8 @@ mod tests {
         )
         .unwrap();
 
-        let is_valid1 = validate_message_value_hash_chain::<_, &[u8]>(&msg1, None).is_ok();
-        let is_verified1 = verify_message_value(&msg1).is_ok();
+        let is_valid1 = validate_message_hash_chain::<_, &[u8]>(&msg1, None).is_ok();
+        let is_verified1 = verify_message(&msg1).is_ok();
 
         let contact = Contact {
             contact: Multikey::from_legacy(
@@ -254,7 +260,7 @@ mod tests {
             blocking: false,
         };
         let content = Content::Plain(contact);
-        let (msg2, _) = publish(
+        let msg2 = publish(
             content,
             Some(&msg1),
             &pk,
@@ -263,8 +269,8 @@ mod tests {
         )
         .unwrap();
 
-        let is_valid2 = validate_message_value_hash_chain(&msg2, Some(&msg1)).is_ok();
-        let is_verified2 = verify_message_value(&msg2).is_ok();
+        let is_valid2 = validate_message_hash_chain(&msg2, Some(&msg1)).is_ok();
+        let is_verified2 = verify_message(&msg2).is_ok();
 
         assert!(is_valid1);
         assert!(is_verified1);
