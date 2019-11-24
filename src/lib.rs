@@ -1,9 +1,10 @@
 //! Publish signed Secure Scuttlebutt (Ssb) Messages as Json
 //!
 
-use ed25519_dalek::{Keypair, PublicKey, SecretKey};
+use std::convert::TryInto;
+//use ed25519_dalek::{Keypair, PublicKey, SecretKey, ExpandedSecretKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Digest, Sha256};
 use snafu::{ensure, ResultExt, Snafu};
 use ssb_legacy_msg::Message;
 use ssb_legacy_msg_data::json::{from_slice, DecodeJsonError};
@@ -11,6 +12,7 @@ use ssb_legacy_msg_data::value::Value;
 use ssb_legacy_msg_data::LegacyF64;
 use ssb_multiformats::multihash::{Target};
 use ssb_multiformats::multikey::{Multisig, Multikey};
+use ssb_crypto::{SecretKey, PublicKey, sign_detached};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -51,17 +53,14 @@ pub use ssb_multiformats::multihash::Multihash;
 /// ## Example
 ///
 ///```
-///  # use ed25519_dalek::Keypair;
-///  # use rand::OsRng;
-///  # use rand::Rng;
-///  # use sha2::Sha512;
 ///  use ssb_publish::{publish, Content};
 ///  use ssb_multiformats::multikey::Multikey;
 ///  use ssb_validate::validate_message_value_hash_chain;
 ///  use ssb_verify_signatures::verify_message_value;
 ///  use serde::{Deserialize, Serialize};
-///  # let mut csprng: OsRng = OsRng::new().unwrap();
-///  # let keypair: Keypair = Keypair::generate::<Sha512, _>(&mut csprng);
+///  use ssb_crypto::{generate_longterm_keypair};
+///
+///  let (pk, sk) = generate_longterm_keypair();
 ///
 ///  #[derive(Serialize, Deserialize, Debug)]
 ///  #[serde(tag = "type")]
@@ -87,8 +86,8 @@ pub use ssb_multiformats::multihash::Multihash;
 ///  let (msg, _) = publish::<_, &[u8]>(
 ///      content,
 ///      None,
-///      keypair.public.as_bytes(),
-///      keypair.secret.as_bytes(),
+///      &pk,
+///      &sk,
 ///      0.0,
 ///  )
 ///  .unwrap();
@@ -104,25 +103,16 @@ pub use ssb_multiformats::multihash::Multihash;
 pub fn publish<T, P>(
     content: Content<T>,
     previous_msg_value_bytes: Option<P>,
-    public_key_bytes: &[u8; 32],
-    secret_key_bytes: &[u8],
+    public_key: &PublicKey,
+    secret_key: &SecretKey,
     timestamp: f64,
 ) -> Result<(Vec<u8>, Multihash)>
 where
     T: Serialize,
     P: AsRef<[u8]>
 {
-    let public_key: PublicKey = PublicKey::from_bytes(&public_key_bytes[..])
-        .map_err(|_| snafu::NoneError)
-        .context(InvalidPublicKey)?;
-    let secret_key: SecretKey = SecretKey::from_bytes(&secret_key_bytes[..])
-        .map_err(|_| snafu::NoneError)
-        .context(InvalidSecretKey)?;
-    let keypair: Keypair = Keypair {
-        secret: secret_key,
-        public: public_key,
-    };
-    let author = Multikey::from_ed25519(*public_key_bytes);
+
+    let author = Multikey::from_ed25519(public_key.as_ref().try_into().unwrap());
 
     let previous_message = match previous_msg_value_bytes {
         Some(message) => {
@@ -161,8 +151,17 @@ where
         .map_err(|_| snafu::NoneError)
         .context(LegacyJsonEncodeFailed)?;
 
-    let signature_bytes = keypair.sign::<Sha512>(&signable_bytes).to_bytes();
-    let signature = Multisig::from_ed25519(signature_bytes);
+    let mut sig = [0; 64];
+
+    let signature_bytes = sign_detached(&signable_bytes, secret_key);
+
+    signature_bytes
+        .as_ref()
+        .iter()
+        .enumerate()
+        .for_each(|(i, byte)| sig[i] = *byte);
+
+    let signature = Multisig::from_ed25519(sig);
 
     new_message.signature = Some(signature);
 
@@ -216,16 +215,12 @@ mod tests {
     use ssb_multiformats::multikey::Multikey;
     use ssb_validate::validate_message_value_hash_chain;
     use ssb_verify_signatures::verify_message_value;
+    use ssb_crypto::{generate_longterm_keypair};
 
-    use ed25519_dalek::Keypair;
-    use rand::OsRng;
-    use rand::Rng;
-    use sha2::Sha512;
 
     #[test]
     fn it_works() {
-        let mut csprng: OsRng = OsRng::new().unwrap();
-        let keypair: Keypair = Keypair::generate::<Sha512, _>(&mut csprng);
+        let (pk, sk) =  generate_longterm_keypair();
 
         let contact = Contact {
             contact: Multikey::from_legacy(
@@ -240,8 +235,8 @@ mod tests {
         let (msg1, _) = publish::<_, &[u8]>(
             content,
             None,
-            keypair.public.as_bytes(),
-            keypair.secret.as_bytes(),
+            &pk,
+            &sk,
             0.0,
         )
         .unwrap();
@@ -262,8 +257,8 @@ mod tests {
         let (msg2, _) = publish(
             content,
             Some(&msg1),
-            keypair.public.as_bytes(),
-            keypair.secret.as_bytes(),
+            &pk,
+            &sk,
             0.0,
         )
         .unwrap();
