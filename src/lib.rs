@@ -84,7 +84,7 @@ pub use ssb_multiformats::multihash::Multihash;
 ///  let content = Content::Plain(contact);
 ///
 ///  // This example is using ed25519_dalek for crypto, but you can use whatever you want.
-///  let (msg, _) = publish(
+///  let (msg, _) = publish::<_, &[u8]>(
 ///      content,
 ///      None,
 ///      keypair.public.as_bytes(),
@@ -101,15 +101,16 @@ pub use ssb_multiformats::multihash::Multihash;
 ///  ```
 
 
-pub fn publish<T>(
+pub fn publish<T, P>(
     content: Content<T>,
-    previous_msg_value_bytes: Option<&[u8]>,
+    previous_msg_value_bytes: Option<P>,
     public_key_bytes: &[u8; 32],
     secret_key_bytes: &[u8],
     timestamp: f64,
 ) -> Result<(Vec<u8>, Multihash)>
 where
     T: Serialize,
+    P: AsRef<[u8]>
 {
     let public_key: PublicKey = PublicKey::from_bytes(&public_key_bytes[..])
         .map_err(|_| snafu::NoneError)
@@ -125,6 +126,7 @@ where
 
     let previous_message = match previous_msg_value_bytes {
         Some(message) => {
+            let message = message.as_ref();
             let decoded_previous =
                 from_slice::<SsbPreviousMessageValue>(message).context(InvalidPreviousMessage {
                     message: message.to_owned(),
@@ -235,7 +237,7 @@ mod tests {
             blocking: false,
         };
         let content = Content::Plain(contact);
-        let (msg1, _) = publish(
+        let (msg1, _) = publish::<_, &[u8]>(
             content,
             None,
             keypair.public.as_bytes(),
