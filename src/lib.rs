@@ -159,7 +159,7 @@ where
         .enumerate()
         .for_each(|(i, byte)| sig[i] = *byte);
 
-    let signature = Multisig::from_ed25519(sig);
+    let signature = Multisig::from_ed25519(&sig);
 
     new_message.signature = Some(signature);
 
